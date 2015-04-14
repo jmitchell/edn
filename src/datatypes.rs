@@ -6,7 +6,7 @@ use std::collections::{LinkedList};
 pub enum BasicElement {
     Nil,
     Boolean(bool),
-    String(String),
+    EString(String),
     Character(char),
     Symbol(String),
     Keyword(String),
@@ -99,8 +99,8 @@ mod test {
 
     #[test]
     fn string_equality() {
-        assert_eq!(String("abc".to_string()), String("abc".to_string()));
-        assert!(String("abc".to_string()) != String("ABC".to_string()));
+        assert_eq!(EString("abc".to_string()), EString("abc".to_string()));
+        assert!(EString("abc".to_string()) != EString("ABC".to_string()));
     }
 
     #[test]
@@ -195,7 +195,7 @@ mod reader {
     use super::Edn;
     use super::Edn::*;
 
-    use pc::{string};
+    use pc::{many1,digit,string};
     use pc::primitives::{Parser,State};
     use pc::combinator::{ParserExt};
 
@@ -211,12 +211,44 @@ mod reader {
         let state = State::new(input);
 
         let nil = string("nil");
-        let bool_true = string("true");
-        let bool_false = string("false");
+
+        let boolean = string("true").map(|_| Basic(Boolean(true)))
+            .or(string("false").map(|_| Basic(Boolean(false))));
+
+        // TODO: element delimiters (whitespace, other than within strings, and commas)
+
+        // TODO: strings
+        // TODO: characters
+        // TODO: symbols
+        // TODO: keywords
+
+        let integer = many1(digit())
+            // TODO: optional '+' or '-' prefix
+            // TODO: constrain first digit to non-zero when multiple digits or prefix
+            // TODO: arbitrary precision 'N' suffix
+            .map(|string: String|
+                 match string.parse::<i64>() {
+                     Ok(n) => Basic(Integer(n)),
+                     Err(_) => panic!("too many digits for i64!"),
+                 });
+
+        // TODO: floats
+
+        // TODO: lists
+        // TODO: vectors
+        // TODO: maps
+        // TODO: sets
+
+        // TODO: #inst
+        // TODO: #uuid
+        // TODO: generic tagged element
+
+        // TODO: comments
+        // TODO: discard sequence
 
         let mut parser = nil.map(|_| Basic(Nil))
-            .or(bool_true.map(|_| Basic(Boolean(true))))
-            .or(bool_false.map(|_| Basic(Boolean(false))));
+            .or(boolean)
+            .or(integer);
 
         match parser.parse_state(state) {
             Ok((edn,_)) => Ok(edn),
@@ -252,6 +284,26 @@ mod reader {
         fn parses_false() {
             let result = read_edn("false");
             assert_eq!(result, Ok(Basic(Boolean(false))));
+        }
+
+        #[test]
+        fn parse_zero_int() {
+            assert_eq!(read_edn("0"), Ok(Basic(Integer(0))));
+        }
+
+        #[test]
+        fn parse_max_64_bit_signed_int() {
+            assert_eq!(read_edn("9223372036854775807"), Ok(Basic(Integer(9223372036854775807))));
+        }
+
+        #[test]
+        #[should_panic]
+        #[allow(unused)]
+        fn parse_overflowed_int() {
+            // TODO: Reassess API.
+            //
+            // Maybe the right thing to do is auto-promote to arbitrary precision.
+            read_edn("9223372036854775808");
         }
     }
 }
