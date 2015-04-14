@@ -191,13 +191,15 @@ mod test {
 
 
 mod reader {
+    extern crate parser_combinators as pc;
+
     use super::BasicElement::*;
     use super::Edn;
     use super::Edn::*;
 
-    use pc::{many1,digit,string};
-    use pc::primitives::{Parser,State};
-    use pc::combinator::{ParserExt};
+    use self::pc::{many1,digit,string};
+    use self::pc::primitives::{Parser,State};
+    use self::pc::combinator::{ParserExt};
 
     #[derive(Debug,PartialEq)]
     pub struct ReadError {
