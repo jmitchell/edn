@@ -13,7 +13,7 @@ pub enum BasicElement {
     Integer(i64),
     // TODO: arbitrary precision integer
     // TODO: 64-bit signed floating point
-    // TODO: "exact precision" floating point
+    // TODO: "exact precision" decimal
 }
 
 #[derive(Debug,PartialEq)]
@@ -23,6 +23,7 @@ pub enum TaggedElement {
     // TODO: #uuid
 }
 
+// TODO: move BasicSet into a separate module
 #[derive(Debug)]
 pub struct BasicSet<T> {
     // TODO: confirm Set is public, but elements aren't.
@@ -185,5 +186,72 @@ mod test {
                 Basic(Integer(3))]
         };
         assert_eq!(Set(x), Set(y));
+    }
+}
+
+
+mod reader {
+    use super::BasicElement::*;
+    use super::Edn;
+    use super::Edn::*;
+
+    use pc::{string};
+    use pc::primitives::{Parser,State};
+    use pc::combinator::{ParserExt};
+
+    #[derive(Debug,PartialEq)]
+    pub struct ReadError {
+        // TODO: provide more information (parser-combinator's error
+        // reporting is nice, but I don't want to expose any of its
+        // API)
+        pub message: &'static str
+    }
+
+    pub fn read_edn(input: &str) -> Result<Edn, ReadError> {
+        let state = State::new(input);
+
+        let nil = string("nil");
+        let bool_true = string("true");
+        let bool_false = string("false");
+
+        let mut parser = nil.map(|_| Basic(Nil))
+            .or(bool_true.map(|_| Basic(Boolean(true))))
+            .or(bool_false.map(|_| Basic(Boolean(false))));
+
+        match parser.parse_state(state) {
+            Ok((edn,_)) => Ok(edn),
+            Err(_) => Err(ReadError { message: "some kind of error!" }),
+        }
+    }
+
+    #[cfg(test)]
+    mod test {
+        use super::{read_edn};
+        use super::super::BasicElement::*;
+        use super::super::Edn::*;
+
+        #[test]
+        fn parses_nil() {
+            let result = read_edn("nil");
+            assert_eq!(result, Ok(Basic(Nil)));
+        }
+
+        #[test]
+        fn failed_parse_nil() {
+            let result = read_edn("not_nil");
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn parses_true() {
+            let result = read_edn("true");
+            assert_eq!(result, Ok(Basic(Boolean(true))));
+        }
+
+        #[test]
+        fn parses_false() {
+            let result = read_edn("false");
+            assert_eq!(result, Ok(Basic(Boolean(false))));
+        }
     }
 }
