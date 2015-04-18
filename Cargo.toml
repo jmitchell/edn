@@ -4,4 +4,4 @@ version = "0.0.1"
 authors = ["Jake Mitchell <jacob.d.mitchell@gmail.com>"]
 
 [dependencies]
-parser-combinators = "0.2.6"
+parser-combinators = "0.3.0"

@@ -190,71 +190,101 @@ mod test {
 }
 
 
+
+
+
+
 mod reader {
     extern crate parser_combinators as pc;
 
     use super::BasicElement::*;
+    use super::BasicSet;
     use super::Edn;
     use super::Edn::*;
 
-    use self::pc::{many1,digit,string};
+    use self::pc::{many1,digit,spaces,string,parser,sep_by,between,ParseResult};
     use self::pc::primitives::{Parser,State};
     use self::pc::combinator::{ParserExt};
 
-    #[derive(Debug,PartialEq)]
-    pub struct ReadError {
-        // TODO: provide more information (parser-combinator's error
-        // reporting is nice, but I don't want to expose any of its
-        // API)
-        pub message: &'static str
+    // TODO: element delimiters (whitespace, other than within strings, and commas)
+
+    fn boolean(input: State<&str>) -> ParseResult<bool, &str> {
+        string("true").map(|_| true)
+            .or(string("false").map(|_| false))
+            .parse_state(input)
     }
 
-    pub fn read_edn(input: &str) -> Result<Edn, ReadError> {
+    fn integer(input: State<&str>) -> ParseResult<i64, &str> {
+        // TODO: optional '+' or '-' prefix
+        // TODO: constrain first digit to non-zero when multiple digits or prefix
+        // TODO: arbitrary precision 'N' suffix
+
+        many1(digit())
+            .map(|digits: String|
+                 match digits.parse::<i64>() {
+                     Ok(n) => n,
+                     Err(_) => panic!("falls outside i64's range!"),
+                 })
+            .parse_state(input)
+    }
+
+    // TODO: strings
+    // TODO: characters
+    // TODO: symbols
+    // TODO: keywords
+
+    // TODO: floats
+
+    fn list(input: State<&str>) -> ParseResult<Edn, &str> {
+        between(string("("),
+                string(")"),
+                sep_by(parser(parse_edn), spaces()))
+            .map(|xs| List(xs))
+            .parse_state(input)
+    }
+
+    fn vector(input: State<&str>) -> ParseResult<Edn, &str> {
+        between(string("["),
+                string("]"),
+                sep_by(parser(parse_edn), spaces()))
+            .map(|xs| Vector(xs))
+            .parse_state(input)
+    }
+
+    // TODO: maps
+
+    fn set(input: State<&str>) -> ParseResult<Edn, &str> {
+        between(string("#{"),
+                string("}"),
+                sep_by(parser(parse_edn), spaces()))
+            .map(|xs| Set(BasicSet { elements: xs }))
+            .parse_state(input)
+    }
+
+
+    // TODO: #inst
+    // TODO: #uuid
+    // TODO: generic tagged element
+
+    // TODO: comments
+    // TODO: discard sequence
+
+    fn parse_edn(input: State<&str>) -> ParseResult<Edn, &str> {
+        string("nil").map(|_| Basic(Nil))
+            .or(parser(boolean).map(|b| Basic(Boolean(b))))
+            .or(parser(integer).map(|n| Basic(Integer(n))))
+            .or(parser(list))
+            .or(parser(vector))
+            .or(parser(set))
+            .parse_state(input)
+    }
+
+    pub fn read_edn(input: &str) -> Result<Edn, &str> {
         let state = State::new(input);
 
-        let nil = string("nil");
-
-        let boolean = string("true").map(|_| Basic(Boolean(true)))
-            .or(string("false").map(|_| Basic(Boolean(false))));
-
-        // TODO: element delimiters (whitespace, other than within strings, and commas)
-
-        // TODO: strings
-        // TODO: characters
-        // TODO: symbols
-        // TODO: keywords
-
-        let integer = many1(digit())
-            // TODO: optional '+' or '-' prefix
-            // TODO: constrain first digit to non-zero when multiple digits or prefix
-            // TODO: arbitrary precision 'N' suffix
-            .map(|string: String|
-                 match string.parse::<i64>() {
-                     Ok(n) => Basic(Integer(n)),
-                     Err(_) => panic!("too many digits for i64!"),
-                 });
-
-        // TODO: floats
-
-        // TODO: lists
-        // TODO: vectors
-        // TODO: maps
-        // TODO: sets
-
-        // TODO: #inst
-        // TODO: #uuid
-        // TODO: generic tagged element
-
-        // TODO: comments
-        // TODO: discard sequence
-
-        let mut parser = nil.map(|_| Basic(Nil))
-            .or(boolean)
-            .or(integer);
-
-        match parser.parse_state(state) {
-            Ok((edn,_)) => Ok(edn),
-            Err(_) => Err(ReadError { message: "some kind of error!" }),
+        match parse_edn(state) {
+            Ok((edn, _)) => Ok(edn),
+            Err(_) => Err("some kind of error!"),
         }
     }
 
@@ -262,7 +292,10 @@ mod reader {
     mod test {
         use super::{read_edn};
         use super::super::BasicElement::*;
+        use super::super::BasicSet;
         use super::super::Edn::*;
+
+        use std::collections::{LinkedList};
 
         #[test]
         fn parses_nil() {
@@ -305,7 +338,82 @@ mod reader {
             // TODO: Reassess API.
             //
             // Maybe the right thing to do is auto-promote to arbitrary precision.
-            read_edn("9223372036854775808");
+            let _ = read_edn("9223372036854775808");
+        }
+
+        #[test]
+        fn parse_single_element_list() {
+            let mut list = LinkedList::new();
+            list.push_back(Basic(Nil));
+
+            assert_eq!(read_edn("(nil)"), Ok(List(list)));
+        }
+
+        #[test]
+        fn parse_empty_list() {
+            assert_eq!(read_edn("()"), Ok(List(LinkedList::new())));
+        }
+
+        #[test]
+        fn parse_nested_lists() {
+            let empty = List(LinkedList::new());
+
+            let mut false_list = LinkedList::new();
+            false_list.push_back(Basic(Boolean(false)));
+
+            let mut one_and_false_list = LinkedList::new();
+            one_and_false_list.push_back(Basic(Integer(1)));
+            one_and_false_list.push_back(List(false_list));
+
+            let mut outer_list = LinkedList::new();
+            outer_list.push_back(empty);
+            outer_list.push_back(List(one_and_false_list));
+
+            assert_eq!(read_edn("(() (1 (false)))"), Ok(List(outer_list)));
+        }
+
+        #[test]
+        fn parse_single_element_vector() {
+            assert_eq!(read_edn("[nil]"), Ok(Vector(vec![Basic(Nil)])));
+        }
+
+        #[test]
+        fn parse_empty_vector() {
+            assert_eq!(read_edn("[]"), Ok(Vector(vec![])));
+        }
+
+        #[test]
+        fn parse_three_element_vector() {
+            assert_eq!(read_edn("[nil nil nil]"), Ok(Vector(vec![Basic(Nil), Basic(Nil), Basic(Nil)])));
+        }
+
+        #[test]
+        fn parse_nested_vectors() {
+            assert_eq!(read_edn("[[] [1 [false]]]"), Ok(
+                Vector(vec![
+                    Vector(vec![]),
+                    Vector(vec![
+                        Basic(Integer(1)),
+                        Vector(vec![
+                            Basic(Boolean(false))])])])))
+        }
+
+        #[test]
+        fn parse_empty_set() {
+            assert_eq!(read_edn("#{}"), Ok(Set(BasicSet { elements: vec![] })));
+        }
+
+        #[test]
+        fn parse_mixed_set() {
+            assert_eq!(read_edn("#{1 [2 3] #{4}}"),
+                       // arbitrary order
+                       Ok(Set(BasicSet { elements: vec![
+                           Set(BasicSet { elements: vec![
+                               Basic(Integer(4))]}),
+                           Basic(Integer(1)),
+                           Vector(vec![
+                               Basic(Integer(2)),
+                               Basic(Integer(3))])]})));
         }
     }
 }
