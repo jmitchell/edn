@@ -202,9 +202,11 @@ mod reader {
     use super::Edn;
     use super::Edn::*;
 
-    use self::pc::{many1,digit,spaces,string,parser,sep_by,between,ParseResult};
+    use self::pc::{many,many1,any_char,digit,hex_digit,spaces,string,parser,sep_by,between,ParseResult};
     use self::pc::primitives::{Parser,State};
     use self::pc::combinator::{ParserExt};
+
+    use std::char;
 
     // TODO: element delimiters (whitespace, other than within strings, and commas)
 
@@ -229,7 +231,36 @@ mod reader {
     }
 
     // TODO: strings
-    // TODO: characters
+
+    fn character(input: State<&str>) -> ParseResult<char, &str> {
+        let named_char =
+            string("return").map(|_| '\r')
+            .or(string("newline").map(|_| '\n'))
+            .or(string("space").map(|_| ' '))
+            .or(string("tab").map(|_| '\t'));
+
+        let unicode_char =
+            string("u").and(many(hex_digit()))
+            .map(|(_, hex): (_, String)| {
+                if hex.len() == 0 {
+                    // wasn't actually a unicode escape; just 'u'
+                    'u'
+                } else {
+                    let mut n = 0;
+                    for h in hex.chars() {
+                        n = 16 * n + (h as u32 - '0' as u32)
+                    }
+                    char::from_u32(n).unwrap()
+                }
+            });
+
+        string("\\")
+            .with(named_char
+                  .or(unicode_char)
+                  .or(parser(any_char)))
+            .parse_state(input)
+    }
+
     // TODO: symbols
     // TODO: keywords
 
@@ -273,6 +304,7 @@ mod reader {
         string("nil").map(|_| Basic(Nil))
             .or(parser(boolean).map(|b| Basic(Boolean(b))))
             .or(parser(integer).map(|n| Basic(Integer(n))))
+            .or(parser(character).map(|c| Basic(Character(c))))
             .or(parser(list))
             .or(parser(vector))
             .or(parser(set))
@@ -339,6 +371,24 @@ mod reader {
             //
             // Maybe the right thing to do is auto-promote to arbitrary precision.
             let _ = read_edn("9223372036854775808");
+        }
+
+        #[test]
+        fn parse_special_characters() {
+            assert_eq!(read_edn(r"\return"), Ok(Basic(Character('\r'))));
+            assert_eq!(read_edn(r"\newline"), Ok(Basic(Character('\n'))));
+            assert_eq!(read_edn(r"\space"), Ok(Basic(Character(' '))));
+            assert_eq!(read_edn(r"\tab"), Ok(Basic(Character('\t'))));
+        }
+
+        #[test]
+        fn parse_u_character() {
+            assert_eq!(read_edn(r"\u"), Ok(Basic(Character('u'))));
+        }
+
+        #[test]
+        fn parse_escaped_unicode_character() {
+            assert_eq!(read_edn(r"\u1234"), Ok(Basic(Character('ሴ'))));
         }
 
         #[test]
