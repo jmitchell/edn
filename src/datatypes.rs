@@ -282,7 +282,21 @@ mod reader {
             .parse_state(input)
     }
 
-    // TODO: maps
+    fn pair(input: State<&str>) -> ParseResult<(Edn, Edn), &str> {
+        parser(parse_edn)
+            .and(spaces().with(parser(parse_edn)))
+            .parse_state(input)
+    }
+
+    fn map(input: State<&str>) -> ParseResult<Edn, &str> {
+        between(string("{"),
+                string("}"),
+                sep_by(parser(pair), spaces()))
+            .map(|pairs|
+                 Map(BasicSet { elements: pairs })
+            )
+            .parse_state(input)
+    }
 
     fn set(input: State<&str>) -> ParseResult<Edn, &str> {
         between(string("#{"),
@@ -307,6 +321,7 @@ mod reader {
             .or(parser(character).map(|c| Basic(Character(c))))
             .or(parser(list))
             .or(parser(vector))
+            .or(parser(map))
             .or(parser(set))
             .parse_state(input)
     }
@@ -446,6 +461,19 @@ mod reader {
                         Basic(Integer(1)),
                         Vector(vec![
                             Basic(Boolean(false))])])])))
+        }
+
+        #[test]
+        fn parse_empty_map() {
+            assert_eq!(read_edn("{}"), Ok(Map(BasicSet { elements: vec![] })));
+        }
+
+        #[test]
+        fn parse_simple_map() {
+            assert_eq!(read_edn("{1 2 3 4}"),
+                       Ok(Map(BasicSet { elements: vec![
+                           (Basic(Integer(3)), Basic(Integer(4))),
+                           (Basic(Integer(1)), Basic(Integer(2)))]})));
         }
 
         #[test]
