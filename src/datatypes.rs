@@ -202,13 +202,17 @@ mod reader {
     use super::Edn;
     use super::Edn::*;
 
-    use self::pc::{many,many1,any_char,digit,hex_digit,spaces,string,parser,sep_by,between,ParseResult};
+    use self::pc::{many,many1,any_char,digit,hex_digit,space,spaces,string,satisfy,parser,sep_by,between,ParseResult};
     use self::pc::primitives::{Parser,State};
     use self::pc::combinator::{ParserExt};
 
     use std::char;
 
-    // TODO: element delimiters (whitespace, other than within strings, and commas)
+    fn delimiter(input: State<&str>) -> ParseResult<(), &str> {
+        space().map(|_| ())
+            .or(satisfy(|c| c == ',').map(|_| ()))
+            .parse_state(input)
+    }
 
     fn boolean(input: State<&str>) -> ParseResult<bool, &str> {
         string("true").map(|_| true)
@@ -269,7 +273,7 @@ mod reader {
     fn list(input: State<&str>) -> ParseResult<Edn, &str> {
         between(string("("),
                 string(")"),
-                sep_by(parser(parse_edn), spaces()))
+                sep_by(parser(parse_edn), many1::<Vec<_>,_>(parser(delimiter))))
             .map(|xs| List(xs))
             .parse_state(input)
     }
@@ -277,7 +281,7 @@ mod reader {
     fn vector(input: State<&str>) -> ParseResult<Edn, &str> {
         between(string("["),
                 string("]"),
-                sep_by(parser(parse_edn), spaces()))
+                sep_by(parser(parse_edn), many1::<Vec<_>,_>(parser(delimiter))))
             .map(|xs| Vector(xs))
             .parse_state(input)
     }
@@ -291,7 +295,7 @@ mod reader {
     fn map(input: State<&str>) -> ParseResult<Edn, &str> {
         between(string("{"),
                 string("}"),
-                sep_by(parser(pair), spaces()))
+                sep_by(parser(pair), many1::<Vec<_>,_>(parser(delimiter))))
             .map(|pairs|
                  Map(BasicSet { elements: pairs })
             )
@@ -301,7 +305,7 @@ mod reader {
     fn set(input: State<&str>) -> ParseResult<Edn, &str> {
         between(string("#{"),
                 string("}"),
-                sep_by(parser(parse_edn), spaces()))
+                sep_by(parser(parse_edn), many1::<Vec<_>,_>(parser(delimiter))))
             .map(|xs| Set(BasicSet { elements: xs }))
             .parse_state(input)
     }
@@ -315,14 +319,15 @@ mod reader {
     // TODO: discard sequence
 
     fn parse_edn(input: State<&str>) -> ParseResult<Edn, &str> {
-        string("nil").map(|_| Basic(Nil))
-            .or(parser(boolean).map(|b| Basic(Boolean(b))))
-            .or(parser(integer).map(|n| Basic(Integer(n))))
-            .or(parser(character).map(|c| Basic(Character(c))))
-            .or(parser(list))
-            .or(parser(vector))
-            .or(parser(map))
-            .or(parser(set))
+        many::<Vec<_>,_>(parser(delimiter))
+            .with(string("nil").map(|_| Basic(Nil))
+                  .or(parser(boolean).map(|b| Basic(Boolean(b))))
+                  .or(parser(integer).map(|n| Basic(Integer(n))))
+                  .or(parser(character).map(|c| Basic(Character(c))))
+                  .or(parser(list))
+                  .or(parser(vector))
+                  .or(parser(map))
+                  .or(parser(set)))
             .parse_state(input)
     }
 
@@ -343,6 +348,11 @@ mod reader {
         use super::super::Edn::*;
 
         use std::collections::{LinkedList};
+
+        #[test]
+        fn ignore_leading_delimiters() {
+            assert_eq!(read_edn(" \n\t\r,nil"), Ok(Basic(Nil)));
+        }
 
         #[test]
         fn parses_nil() {
