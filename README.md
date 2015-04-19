@@ -1,4 +1,4 @@
-# edn
+# edn [![Build Status](https://travis-ci.org/jmitchell/edn.png?branch=master)](https://travis-ci.org/jmitchell/edn)
 
 A Rust implementation of the [edn serialization](https://github.com/edn-format/edn). The current focus is on modeling and parsing Edn, but will later include serializing to Edn.
 
