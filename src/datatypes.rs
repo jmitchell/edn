@@ -234,7 +234,21 @@ mod reader {
             .parse_state(input)
     }
 
-    // TODO: strings
+    fn estring(input: State<&str>) -> ParseResult<String, &str> {
+        // TODO: handle escaped characters, including \"
+
+        between(string("\""),
+                string("\""),
+                many::<Vec<_>,_>(satisfy(|c| c != '"')))
+            .map(|cs| {
+                let mut s = String::with_capacity(cs.len());
+                for c in cs {
+                    s.push(c);
+                }
+                s
+            })
+            .parse_state(input)
+    }
 
     fn character(input: State<&str>) -> ParseResult<char, &str> {
         let named_char =
@@ -322,6 +336,7 @@ mod reader {
         many::<Vec<_>,_>(parser(delimiter))
             .with(string("nil").map(|_| Basic(Nil))
                   .or(parser(boolean).map(|b| Basic(Boolean(b))))
+                  .or(parser(estring).map(|s| Basic(EString(s))))
                   .or(parser(integer).map(|n| Basic(Integer(n))))
                   .or(parser(character).map(|c| Basic(Character(c))))
                   .or(parser(list))
@@ -331,12 +346,15 @@ mod reader {
             .parse_state(input)
     }
 
-    pub fn read_edn(input: &str) -> Result<Edn, &str> {
+    pub fn read_edn(input: &str) -> Result<Edn, String> {
         let state = State::new(input);
 
         match parse_edn(state) {
             Ok((edn, _)) => Ok(edn),
-            Err(_) => Err("some kind of error!"),
+            Err(x) => {
+//                println!("parse error: {:?}", x);
+                Err(format!("parse error: {:?}", x))
+            },
         }
     }
 
@@ -376,6 +394,24 @@ mod reader {
         fn parses_false() {
             let result = read_edn("false");
             assert_eq!(result, Ok(Basic(Boolean(false))));
+        }
+
+        #[test]
+        fn parse_empty_string() {
+            assert_eq!(read_edn("\"\""), Ok(Basic(EString("".to_string()))));
+        }
+
+        #[test]
+        fn parse_simple_string() {
+            assert_eq!(read_edn("\"abc\""), Ok(Basic(EString("abc".to_string()))))
+        }
+
+        #[test]
+        fn parse_multiline_string() {
+            assert_eq!(read_edn(
+                r#""1
+2
+3""#), Ok(Basic(EString("1\n2\n3".to_string()))))
         }
 
         #[test]
